@@ -134,7 +134,20 @@ def _create_unet_configuration(
         model_params = {}
 
     model_params["n2v2"] = use_n2v2
-    model_params["conv_dims"] = 3 if "Z" in axes else 2
+    
+    # Calculate conv_dims from spatial axes
+    spatial_axes = [ax for ax in axes if ax in 'XYZ']
+    n_spatial_dims = len(spatial_axes)
+    if n_spatial_dims == 1:
+        model_params["conv_dims"] = 1
+    elif n_spatial_dims == 2:
+        model_params["conv_dims"] = 2
+    elif n_spatial_dims == 3:
+        model_params["conv_dims"] = 3
+    else:
+        raise ValueError("Invalid number of spatial dimensions.")
+    
+    # model_params["conv_dims"] = 3 if "Z" in spatial_axes else 2
     model_params["in_channels"] = n_channels_in
     model_params["num_classes"] = n_channels_out
     model_params["independent_channels"] = independent_channels
@@ -1038,7 +1051,7 @@ def create_n2v_configuration(
     data_type : Literal["array", "tiff", "czi", "custom"]
         Type of the data.
     axes : str
-        Axes of the data (e.g. SYX).
+        Axes of the data (e.g. "YX" for 2D, "X" for 1D, "ZYX" for 3D).
     patch_size : List[int]
         Size of the patches along the spatial dimensions (e.g. [64, 64]).
     batch_size : int
@@ -1104,7 +1117,18 @@ def create_n2v_configuration(
     ...     batch_size=32,
     ...     num_epochs=100
     ... )
-
+    
+   1D example for Raman spectroscopy:
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="n2v_1d_raman",
+    ...     data_type="array",
+    ...     axes="X",
+    ...     patch_size=[128],
+    ...     batch_size=64,
+    ...     num_epochs=100,
+    ...     roi_size=3  # Smaller ROI for 1D data
+    ... )
+    
     To disable transforms, simply set `augmentations` to an empty list:
     >>> config = create_n2v_configuration(
     ...     experiment_name="n2v_experiment",
@@ -1203,6 +1227,11 @@ def create_n2v_configuration(
     ...     n_channels=1,
     ... )
     """
+    # Determine if 1D data
+    spatial_axes = [ax for ax in axes if ax in 'XYZ']
+    is_1d = len(spatial_axes) == 1
+    
+    n_spatial_dims = len(spatial_axes)
     # if there are channels, we need to specify their number
     if "C" in axes and n_channels is None:
         raise ValueError("Number of channels must be specified when using channels.")
@@ -1214,9 +1243,38 @@ def create_n2v_configuration(
 
     if n_channels is None:
         n_channels = 1
+        
+    # Disable struct_n2v and warn 
+    if is_1d and struct_n2v_axis != "none":
+        import warnings
+        warnings.warn(
+            "StructN2V is not applicable to 1D data. Setting struct_n2v_axis to 'none'.",
+            UserWarning
+        )
+        struct_n2v_axis = "none"
+        
+    # For 1D data we adjust default roi_size if not explicitly set
+    if is_1d and roi_size == 11:  # Default value
+        roi_size = 3  # Smaller default for 1D
+       
+  # augmentations - for 1D data we skip 2D transforms
+    if is_1d:
+        # For 1D data, we don't apply 2D spatial transforms
+        if augmentations is None:
+            spatial_transforms = []  # No default transforms for 1D
+        else:
+            # Filter out 2D transforms, warn user
+            import warnings
+            spatial_transforms = []
+            if augmentations:
+                warnings.warn(
+                    "2D spatial transforms (XYFlip, XYRandomRotate90) are not "
+                    "applicable to 1D data. No spatial transforms will be applied.",
+                    UserWarning
+                )
+    else:
+        spatial_transforms = _list_spatial_augmentations(augmentations)
 
-    # augmentations
-    spatial_transforms = _list_spatial_augmentations(augmentations)
 
     # create the N2VManipulate transform using the supplied parameters
     n2v_transform = N2VManipulateModel(
