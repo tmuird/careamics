@@ -1003,6 +1003,7 @@ def create_n2v_configuration(
     val_dataloader_params: dict[str, Any] | None = None,
     checkpoint_params: dict[str, Any] | None = None,
     n_data_channels: int = 1,
+    data_channel_indices: list[int] | None = None,
 ) -> Configuration:
     """
     Create a configuration for training Noise2Void.
@@ -1101,6 +1102,15 @@ def create_n2v_configuration(
     checkpoint_params : dict, default=None
         Parameters for the checkpoint callback, see PyTorch Lightning documentation
         (`ModelCheckpoint`) for the list of available parameters.
+    n_data_channels : int, default=1
+        Number of data channels to mask, starting from index 0. Only used if
+        `data_channel_indices` is None. For example, if `n_data_channels=2`, channels
+        0 and 1 will be masked.
+    data_channel_indices : list of int or None, default=None
+        Specific channel indices to mask (e.g., [0, 3, 5]). If specified, takes
+        precedence over `n_data_channels`. Useful when you have auxiliary channels
+        (like positional encodings) that should not be masked. The indices will be
+        automatically sorted. If None, the first `n_data_channels` channels are masked.
 
     Returns
     -------
@@ -1205,6 +1215,35 @@ def create_n2v_configuration(
     ...     n_channels=3
     ... )
 
+    For advanced use cases with auxiliary channels (like positional encodings), you can
+    specify exactly which channels to mask using `data_channel_indices`:
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="raman_with_pe",
+    ...     data_type="array",
+    ...     axes="SXC",  # 1D Raman with channels
+    ...     patch_size=[1024],
+    ...     batch_size=64,
+    ...     num_epochs=100,
+    ...     independent_channels=False,
+    ...     n_channels=7,  # 1 Raman + 6 positional encoding channels
+    ...     data_channel_indices=[0],  # Only mask the Raman channel
+    ...     model_params={"num_classes": 1}  # Output 1 channel
+    ... )
+
+    Or with non-sequential data channels:
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="multi_channel_microscopy",
+    ...     data_type="array",
+    ...     axes="YXC",
+    ...     patch_size=[256, 256],
+    ...     batch_size=32,
+    ...     num_epochs=100,
+    ...     independent_channels=False,
+    ...     n_channels=6,  # 3 fluorescence + 3 auxiliary
+    ...     data_channel_indices=[0, 2, 4],  # Mask fluorescence channels only
+    ...     model_params={"num_classes": 3}  # Output 3 channels
+    ... )
+
     If you would like to train on CZI files, use `"czi"` as `data_type` and `"SCYX"` as
     `axes` for 2-D or `"SCZYX"` for 3-D denoising. Note that `"SCYX"` can also be used
     for 3-D data but spatial context along the Z dimension will then not be taken into
@@ -1290,6 +1329,7 @@ def create_n2v_configuration(
         struct_mask_axis=struct_n2v_axis,
         struct_mask_span=struct_n2v_span,
         n_data_channels=n_data_channels,
+        data_channel_indices=data_channel_indices,
     )
 
     # algorithm
