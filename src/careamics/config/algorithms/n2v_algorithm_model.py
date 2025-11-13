@@ -102,7 +102,7 @@ class N2VAlgorithm(UNetBasedAlgorithm):
 
     model: Annotated[
         UNetModel,
-        AfterValidator(model_matching_in_out_channels),
+        # AfterValidator(model_matching_in_out_channels),  # Disabled for multi-channel input with PE
         AfterValidator(model_without_final_activation),
     ]
 
