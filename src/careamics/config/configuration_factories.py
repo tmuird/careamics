@@ -253,6 +253,9 @@ def _create_data_configuration(
     augmentations: Union[list[SPATIAL_TRANSFORMS_UNION]],
     train_dataloader_params: dict[str, Any] | None = None,
     val_dataloader_params: dict[str, Any] | None = None,
+    patching_strategy: Literal["sequential", "random"] = "sequential",
+    patching_seed: int | None = None,
+    num_patches_per_sample: int | None = None,
 ) -> DataConfig:
     """
     Create a dictionary with the parameters of the data model.
@@ -273,6 +276,12 @@ def _create_data_configuration(
         Parameters for the training dataloader, see PyTorch notes, by default None.
     val_dataloader_params : dict
         Parameters for the validation dataloader, see PyTorch notes, by default None.
+    patching_strategy : {"sequential", "random"}, default="sequential"
+        Patching strategy to use during data preparation.
+    patching_seed : int or None, default=None
+        Random seed for random patching.
+    num_patches_per_sample : int or None, default=None
+        Number of patches to extract per sample when using random patching.
 
     Returns
     -------
@@ -286,6 +295,9 @@ def _create_data_configuration(
         "patch_size": patch_size,
         "batch_size": batch_size,
         "transforms": augmentations,
+        "patching_strategy": patching_strategy,
+        "patching_seed": patching_seed,
+        "num_patches_per_sample": num_patches_per_sample,
     }
     # Don't override defaults set in DataConfig class
     if train_dataloader_params is not None:
@@ -499,6 +511,9 @@ def _create_supervised_config_dict(
     checkpoint_params: dict[str, Any] | None = None,
     num_epochs: int | None = None,
     num_steps: int | None = None,
+    patching_strategy: Literal["sequential", "random"] = "sequential",
+    patching_seed: int | None = None,
+    num_patches_per_sample: int | None = None,
 ) -> dict:
     """
     Create a configuration for training CARE or Noise2Noise.
@@ -613,6 +628,9 @@ def _create_supervised_config_dict(
         augmentations=spatial_transform_list,
         train_dataloader_params=train_dataloader_params,
         val_dataloader_params=val_dataloader_params,
+        patching_strategy=patching_strategy,
+        patching_seed=patching_seed,
+        num_patches_per_sample=num_patches_per_sample,
     )
 
     # Handle trainer parameters with num_epochs and num_steps
@@ -662,6 +680,9 @@ def create_care_configuration(
     train_dataloader_params: dict[str, Any] | None = None,
     val_dataloader_params: dict[str, Any] | None = None,
     checkpoint_params: dict[str, Any] | None = None,
+    patching_strategy: Literal["sequential", "random"] = "sequential",
+    patching_seed: int | None = None,
+    num_patches_per_sample: int | None = None,
 ) -> Configuration:
     """
     Create a configuration for training CARE.
@@ -872,6 +893,9 @@ def create_care_configuration(
             checkpoint_params=checkpoint_params,
             num_epochs=num_epochs,
             num_steps=num_steps,
+            patching_strategy=patching_strategy,
+            patching_seed=patching_seed,
+            num_patches_per_sample=num_patches_per_sample,
         )
     )
 
@@ -899,6 +923,9 @@ def create_n2n_configuration(
     train_dataloader_params: dict[str, Any] | None = None,
     val_dataloader_params: dict[str, Any] | None = None,
     checkpoint_params: dict[str, Any] | None = None,
+    patching_strategy: Literal["sequential", "random"] = "sequential",
+    patching_seed: int | None = None,
+    num_patches_per_sample: int | None = None,
 ) -> Configuration:
     """
     Create a configuration for training Noise2Noise.
@@ -1108,6 +1135,9 @@ def create_n2n_configuration(
             checkpoint_params=checkpoint_params,
             num_epochs=num_epochs,
             num_steps=num_steps,
+            patching_strategy=patching_strategy,
+            patching_seed=patching_seed,
+            num_patches_per_sample=num_patches_per_sample,
         )
     )
 
@@ -1140,6 +1170,9 @@ def create_n2v_configuration(
     checkpoint_params: dict[str, Any] | None = None,
     n_data_channels: int = 1,
     data_channel_indices: list[int] | None = None,
+    patching_strategy: Literal["sequential", "random"] = "sequential",
+    patching_seed: int | None = None,
+    num_patches_per_sample: int | None = None,
 ) -> Configuration:
     """
      Create a configuration for training Noise2Void.
@@ -1254,6 +1287,18 @@ def create_n2v_configuration(
          precedence over `n_data_channels`. Useful when you have auxiliary channels
          (like positional encodings) that should not be masked. The indices will be
          automatically sorted. If None, the first `n_data_channels` channels are masked.
+     patching_strategy : Literal["sequential", "random"], default="sequential"
+         Patching strategy to use during data preparation. 'sequential' extracts patches
+         sequentially with potential overlap, while 'random' extracts patches randomly
+         from the data. Random patching can improve training diversity.
+     patching_seed : int or None, default=None
+         Random seed for random patching. Only used when patching_strategy is 'random'.
+         If None, patches will be extracted randomly without a fixed seed.
+     num_patches_per_sample : int or None, default=None
+         Number of patches to extract per sample when using random patching. If None,
+         automatically calculated as ceil(total_pixels / patch_pixels). Setting higher
+         extracts more patches with overlap (better diversity), lower extracts fewer
+         (faster training). Only used when patching_strategy is 'random'.
 
     Returns
     -------
@@ -1397,6 +1442,19 @@ def create_n2v_configuration(
      ...     model_params={"num_classes": 3}  # Output 3 channels
      ... )
 
+     To use random patching instead of sequential patching (which can improve training
+     diversity), simply set the `patching_strategy` parameter:
+     >>> config = create_n2v_configuration(
+     ...     experiment_name="n2v_random_patching",
+     ...     data_type="array",
+     ...     axes="YX",
+     ...     patch_size=[64, 64],
+     ...     batch_size=32,
+     ...     num_epochs=100,
+     ...     patching_strategy="random",
+     ...     patching_seed=42  # Optional: for reproducibility
+     ... )
+
      If you would like to train on CZI files, use `"czi"` as `data_type` and `"SCYX"` as
      `axes` for 2-D or `"SCZYX"` for 3-D denoising. Note that `"SCYX"` can also be used
      for 3-D data but spatial context along the Z dimension will then not be taken into
@@ -1512,6 +1570,9 @@ def create_n2v_configuration(
         augmentations=spatial_transforms,
         train_dataloader_params=train_dataloader_params,
         val_dataloader_params=val_dataloader_params,
+        patching_strategy=patching_strategy,
+        patching_seed=patching_seed,
+        num_patches_per_sample=num_patches_per_sample,
     )
 
     # training
