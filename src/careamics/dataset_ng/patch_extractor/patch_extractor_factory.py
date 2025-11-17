@@ -6,10 +6,17 @@ from numpy.typing import NDArray
 from typing_extensions import ParamSpec
 
 from careamics.dataset_ng.patch_extractor import PatchExtractor
+from careamics.dataset_ng.patch_extractor.image_stack.image_utils.zarr_utils import (
+    create_zarr_image_stacks,
+)
+from careamics.dataset_ng.patch_extractor.limit_file_extractor import (
+    LimitFilesPatchExtractor,
+)
 from careamics.file_io.read import ReadFunc
 
 from .image_stack import (
     CziImageStack,
+    FileImageStack,
     GenericImageStack,
     InMemoryImageStack,
     ZarrImageStack,
@@ -69,16 +76,39 @@ def create_tiff_extractor(
     return PatchExtractor(image_stacks)
 
 
-# ZARR case
-def create_ome_zarr_extractor(
-    source: Sequence[Path],
-    axes: str,
-) -> PatchExtractor[ZarrImageStack]:
-    """
-    Create a patch extractor from a sequence of OME ZARR files.
+# # OME-ZARR case
+# def create_ome_zarr_extractor(
+#     source: Sequence[Path],
+#     axes: str,
+# ) -> PatchExtractor[ZarrImageStack]:
+#     """
+#     Create a patch extractor from a sequence of OME ZARR files.
 
-    If you have ZARR files that do not follow the OME standard, see documentation on
-    how to create a custom `image_stack_loader`. (TODO: Add link).
+#     If you have ZARR files that do not follow the OME standard, see documentation on
+#     how to create a custom `image_stack_loader`. (TODO: Add link).
+
+#     Parameters
+#     ----------
+#     source: sequence of Path
+#         The source files for the data.
+#     axes: str
+#         The original axes of the data, must be a subset of "STCZYX".
+
+#     Returns
+#     -------
+#     PatchExtractor
+#     """
+#     # NOTE: axes is unused here, in from_ome_zarr the axes are automatically retrieved
+#     image_stacks = [ZarrImageStack.from_ome_zarr(path) for path in source]
+#     return PatchExtractor(image_stacks)
+
+
+# Lazy Tiff
+def create_iter_tiff_extractor(
+    source: Sequence[Path], axes: str
+) -> LimitFilesPatchExtractor:
+    """
+    Create a patch extractor from a sequence of TIFF files.
 
     Parameters
     ----------
@@ -91,8 +121,19 @@ def create_ome_zarr_extractor(
     -------
     PatchExtractor
     """
-    # NOTE: axes is unused here, in from_ome_zarr the axes are automatically retrieved
-    image_stacks = [ZarrImageStack.from_ome_zarr(path) for path in source]
+    image_stacks = [FileImageStack.from_tiff(path=path, axes=axes) for path in source]
+    return LimitFilesPatchExtractor(image_stacks)
+
+
+# Arbitrary zarr list
+def create_zarr_extractor(
+    source: Sequence[str | Path],
+    axes: str,
+) -> PatchExtractor[ZarrImageStack]:
+    image_stacks: list[ZarrImageStack] = create_zarr_image_stacks(
+        source=source, axes=axes
+    )
+
     return PatchExtractor(image_stacks)
 
 
@@ -104,7 +145,7 @@ def create_czi_extractor(
     """
     Create a patch extractor from a sequence of CZI files.
 
-    If the CZI files contain multiple scenes, one patch extractor will be created for
+    If the CZI files contain multiple scenes, one image stack will be created for
     each scene.
 
     Parameters

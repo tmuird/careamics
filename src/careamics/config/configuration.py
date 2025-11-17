@@ -3,26 +3,28 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 from pprint import pformat
-from typing import Any, Literal, Union
+from typing import Any, Literal, Self, Union
 
 import numpy as np
 from bioimageio.spec.generic.v0_3 import CiteEntry
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from pydantic.main import IncEx
-from typing_extensions import Self
 
 from careamics.config.algorithms import (
     CAREAlgorithm,
+    HDNAlgorithm,
+    MicroSplitAlgorithm,
     N2NAlgorithm,
     N2VAlgorithm,
 )
 from careamics.config.data import DataConfig
 from careamics.config.training_model import TrainingConfig
+from careamics.lvae_training.dataset.config import MicroSplitDataConfig
 
 ALGORITHMS = Union[
     CAREAlgorithm,
+    HDNAlgorithm,
+    MicroSplitAlgorithm,
     N2NAlgorithm,
     N2VAlgorithm,
 ]
@@ -86,7 +88,6 @@ class Configuration(BaseModel):
     ...     axes="YX",
     ...     patch_size=[64, 64],
     ...     batch_size=32,
-    ...     num_epochs=100
     ... )
 
     The configuration can be exported to a dictionary using the model_dump method:
@@ -110,9 +111,7 @@ class Configuration(BaseModel):
     ...                 "architecture": "UNet",
     ...             },
     ...         },
-    ...         "training_config": {
-    ...             "num_epochs": 200,
-    ...         },
+    ...         "training_config": {},
     ...         "data_config": {
     ...             "data_type": "tiff",
     ...             "patch_size": [64, 64],
@@ -140,7 +139,7 @@ class Configuration(BaseModel):
     """Algorithm configuration, holding all parameters required to configure the
     model."""
 
-    data_config: DataConfig
+    data_config: DataConfig | MicroSplitDataConfig
     """Data configuration, holding all parameters required to configure the training
     data loader."""
 
@@ -185,7 +184,7 @@ class Configuration(BaseModel):
 
         return name
 
-    @model_validator(mode="after")
+    @model_validator(mode="after")  # TODO move to n2v configs or remove
     def validate_n2v_mask_pixel_perc(self: Self) -> Self:
         """
         Validate that there will always be at least one blind-spot pixel in every patch.
@@ -342,19 +341,7 @@ class Configuration(BaseModel):
 
     def model_dump(
         self,
-        *,
-        mode: Literal["json", "python"] | str = "python",
-        include: IncEx | None = None,
-        exclude: IncEx | None = None,
-        context: Any | None = None,
-        by_alias: bool | None = False,
-        exclude_unset: bool = False,
-        exclude_defaults: bool = False,
-        exclude_none: bool = True,
-        round_trip: bool = False,
-        warnings: bool | Literal["none", "warn", "error"] = True,
-        fallback: Callable[[Any], Any] | None = None,
-        serialize_as_any: bool = False,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """
         Override model_dump method in order to set default values.
@@ -364,50 +351,15 @@ class Configuration(BaseModel):
 
         Parameters
         ----------
-        mode : Literal['json', 'python'] | str, default='python'
-            The serialization format.
-        include : Any | None, default=None
-            Attributes to include.
-        exclude : Any | None, default=None
-            Attributes to exclude.
-        context : Any | None, default=None
-            Additional context to pass to the serialization functions.
-        by_alias : bool, default=False
-            Whether to use attribute aliases.
-        exclude_unset : bool, default=False
-            Whether to exclude fields that are not set.
-        exclude_defaults : bool, default=False
-            Whether to exclude fields that have default values.
-        exclude_none : bool, default=true
-            Whether to exclude fields that have None values.
-        round_trip : bool, default=False
-            Whether to dump and load the data to ensure that the output is a valid
-            representation.
-        warnings : bool | Literal['none', 'warn', 'error'], default=True
-            Whether to emit warnings.
-        fallback : Callable[[Any], Any] | None, default=None
-            A function to call when an unknown value is encountered.
-        serialize_as_any : bool, default=False
-            Whether to serialize all types as Any.
+        **kwargs : Any
+            Additional arguments to pass to the parent model_dump method.
 
         Returns
         -------
         dict
             Dictionary containing the model parameters.
         """
-        dictionary = super().model_dump(
-            mode=mode,
-            include=include,
-            exclude=exclude,
-            context=context,
-            by_alias=by_alias,
-            exclude_unset=exclude_unset,
-            exclude_defaults=exclude_defaults,
-            exclude_none=exclude_none,
-            round_trip=round_trip,
-            warnings=warnings,
-            fallback=fallback,
-            serialize_as_any=serialize_as_any,
-        )
+        if "exclude_none" not in kwargs:
+            kwargs["exclude_none"] = True
 
-        return dictionary
+        return super().model_dump(**kwargs)

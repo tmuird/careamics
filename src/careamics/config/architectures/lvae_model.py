@@ -1,9 +1,8 @@
 """LVAE Pydantic model."""
 
-from typing import Literal
+from typing import Literal, Self
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
-from typing_extensions import Self
 
 from .architecture_model import ArchitectureModel
 
@@ -15,11 +14,9 @@ class LVAEModel(ArchitectureModel):
     model_config = ConfigDict(validate_assignment=True, validate_default=True)
 
     architecture: Literal["LVAE"]
-    """Name of the architecture."""
 
-    input_shape: list[int] = Field(default=[64, 64], validate_default=True)
-    """Shape of the input patch (C, Z, Y, X) or (C, Y, X) if the data is 2D."""
-
+    input_shape: tuple[int, ...] = Field(default=(64, 64), validate_default=True)
+    """Shape of the input patch (Z, Y, X) or (Y, X) if the data is 2D."""
     encoder_conv_strides: list = Field(default=[2, 2], validate_default=True)
 
     # TODO make this per hierarchy step ?
@@ -42,7 +39,7 @@ class LVAEModel(ArchitectureModel):
         default="ELU",
     )
 
-    predict_logvar: Literal[None, "pixelwise"] = None
+    predict_logvar: Literal[None, "pixelwise"] = "pixelwise"
     analytical_kl: bool = Field(default=False)
 
     @model_validator(mode="after")
@@ -126,6 +123,13 @@ class LVAEModel(ArchitectureModel):
                 f"Input shape must be greater than 1 in all dimensions"
                 f"(got {input_shape})."
             )
+
+        if any(s < 64 for s in input_shape[-2:]):
+            raise ValueError(
+                f"Input shape must be greater or equal to 64 in XY dimensions"
+                f"(got {input_shape})."
+            )
+
         return input_shape
 
     @field_validator("encoder_n_filters")
@@ -255,4 +259,4 @@ class LVAEModel(ArchitectureModel):
         bool
             Whether the model is 3D or not.
         """
-        return self.conv_dims == 3
+        return len(self.input_shape) == 3
