@@ -241,6 +241,76 @@ class FCNModule(L.LightningModule):
 
         # Denormalize the output
         # TODO incompatible API between predict and train datasets
+        # Get target channel indices for per-channel models (e.g., N2V)
+        target_channel_indices = None
+
+        # Debug: Check what n2v_preprocess looks like
+        print(f"[DENORM DEBUG] hasattr n2v_preprocess: {hasattr(self, 'n2v_preprocess')}")
+        if hasattr(self, "n2v_preprocess"):
+            print(f"[DENORM DEBUG] n2v_preprocess is None: {self.n2v_preprocess is None}")
+            if self.n2v_preprocess is not None:
+                print(f"[DENORM DEBUG] n2v_preprocess type: {type(self.n2v_preprocess)}")
+                print(f"[DENORM DEBUG] hasattr data_channel_indices: {hasattr(self.n2v_preprocess, 'data_channel_indices')}")
+                if hasattr(self.n2v_preprocess, "data_channel_indices"):
+                    print(f"[DENORM DEBUG] data_channel_indices value: {self.n2v_preprocess.data_channel_indices}")
+
+        # For FCNModule: Check if we have N2V preprocessing which stores the config
+        if hasattr(self, "n2v_preprocess") and self.n2v_preprocess is not None:
+            if hasattr(self.n2v_preprocess, "data_channel_indices"):
+                target_channel_indices = self.n2v_preprocess.data_channel_indices
+                print(
+                    f"[DENORM FIX] Using target_channel_indices from n2v_preprocess: {target_channel_indices}"
+                )
+
+        # Fallback: Try hparams (for newer modules)
+        if (
+            target_channel_indices is None
+            and hasattr(self, "hparams")
+            and len(self.hparams) > 0
+        ):
+            if "algorithm_config" in self.hparams:
+                alg_config = self.hparams["algorithm_config"]
+                if isinstance(alg_config, dict) and "n2v_config" in alg_config:
+                    n2v_config = alg_config["n2v_config"]
+                    if (
+                        isinstance(n2v_config, dict)
+                        and "data_channel_indices" in n2v_config
+                    ):
+                        target_channel_indices = n2v_config["data_channel_indices"]
+                        print(
+                            f"[DENORM FIX] Using target_channel_indices from hparams: {target_channel_indices}"
+                        )
+                elif (
+                    hasattr(alg_config, "n2v_config")
+                    and alg_config.n2v_config is not None
+                ):
+                    if hasattr(alg_config.n2v_config, "data_channel_indices"):
+                        target_channel_indices = (
+                            alg_config.n2v_config.data_channel_indices
+                        )
+                        print(
+                            f"[DENORM FIX] Using target_channel_indices from alg_config: {target_channel_indices}"
+                        )
+
+        # Fallback 2: Try algorithm_config attribute (for new style modules)
+        if target_channel_indices is None and hasattr(self, "algorithm_config"):
+            if (
+                hasattr(self.algorithm_config, "n2v_config")
+                and self.algorithm_config.n2v_config is not None
+            ):
+                if hasattr(self.algorithm_config.n2v_config, "data_channel_indices"):
+                    target_channel_indices = (
+                        self.algorithm_config.n2v_config.data_channel_indices
+                    )
+                    print(
+                        f"[DENORM FIX] Using target_channel_indices from self.algorithm_config: {target_channel_indices}"
+                    )
+
+        if target_channel_indices is None:
+            print(
+                f"[DENORM FIX] WARNING: target_channel_indices is None, using default (channel 0 stats)"
+            )
+
         denorm = Denormalize(
             image_means=(
                 self._trainer.datamodule.predict_dataset.image_means
@@ -252,6 +322,7 @@ class FCNModule(L.LightningModule):
                 if from_prediction
                 else self._trainer.datamodule.train_dataset.image_stats.stds
             ),
+            target_channel_indices=target_channel_indices,
         )
         denormalized_output = denorm(patch=output.cpu().numpy())
 
@@ -504,7 +575,7 @@ class VAEModule(L.LightningModule):
         self.log_dict(loss, on_epoch=True, prog_bar=True)
         curr_psnr = self.compute_val_psnr(out, target)
         for i, psnr in enumerate(curr_psnr):
-            self.log(f"val_psnr_ch{i+1}_batch", psnr, on_epoch=True)
+            self.log(f"val_psnr_ch{i + 1}_batch", psnr, on_epoch=True)
 
     def on_validation_epoch_end(self) -> None:
         """Validation epoch end."""
@@ -598,9 +669,59 @@ class VAEModule(L.LightningModule):
             std = torch.stack(mmse_list).std(0)  # TODO why?
             # TODO better way to unpack if pred logvar
             # Denormalize the output
+            # Get target channel indices for per-channel models (not used for microsplit)
+            target_channel_indices = None
+
+            # Debug: Check what n2v_preprocess looks like
+            print(f"[DENORM DEBUG MICRO] hasattr n2v_preprocess: {hasattr(self, 'n2v_preprocess')}")
+            if hasattr(self, "n2v_preprocess"):
+                print(f"[DENORM DEBUG MICRO] n2v_preprocess is None: {self.n2v_preprocess is None}")
+                if self.n2v_preprocess is not None:
+                    print(f"[DENORM DEBUG MICRO] n2v_preprocess type: {type(self.n2v_preprocess)}")
+                    print(f"[DENORM DEBUG MICRO] hasattr data_channel_indices: {hasattr(self.n2v_preprocess, 'data_channel_indices')}")
+                    if hasattr(self.n2v_preprocess, "data_channel_indices"):
+                        print(f"[DENORM DEBUG MICRO] data_channel_indices value: {self.n2v_preprocess.data_channel_indices}")
+
+            # For FCNModule: Check if we have N2V preprocessing which stores the config
+            if hasattr(self, "n2v_preprocess") and self.n2v_preprocess is not None:
+                if hasattr(self.n2v_preprocess, "data_channel_indices"):
+                    target_channel_indices = self.n2v_preprocess.data_channel_indices
+                    print(f"[DENORM FIX MICRO] Using target_channel_indices from n2v_preprocess: {target_channel_indices}")
+
+            # Fallback: For FCNModule, algorithm_config is not saved as attribute, need to get from hparams
+            if target_channel_indices is None and hasattr(self, "hparams") and "algorithm_config" in self.hparams:
+                alg_config = self.hparams["algorithm_config"]
+                if isinstance(alg_config, dict) and "n2v_config" in alg_config:
+                    n2v_config = alg_config["n2v_config"]
+                    if (
+                        isinstance(n2v_config, dict)
+                        and "data_channel_indices" in n2v_config
+                    ):
+                        target_channel_indices = n2v_config["data_channel_indices"]
+                elif (
+                    hasattr(alg_config, "n2v_config")
+                    and alg_config.n2v_config is not None
+                ):
+                    if hasattr(alg_config.n2v_config, "data_channel_indices"):
+                        target_channel_indices = (
+                            alg_config.n2v_config.data_channel_indices
+                        )
+            elif hasattr(self, "algorithm_config"):
+                if (
+                    hasattr(self.algorithm_config, "n2v_config")
+                    and self.algorithm_config.n2v_config is not None
+                ):
+                    if hasattr(
+                        self.algorithm_config.n2v_config, "data_channel_indices"
+                    ):
+                        target_channel_indices = (
+                            self.algorithm_config.n2v_config.data_channel_indices
+                        )
+
             denorm = Denormalize(
                 image_means=self._trainer.datamodule.predict_dataset.image_means,
                 image_stds=self._trainer.datamodule.predict_dataset.image_stds,
+                target_channel_indices=target_channel_indices,
             )
 
             denormalized_output = denorm(patch=mmse.cpu().numpy())
