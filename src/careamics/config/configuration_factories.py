@@ -176,7 +176,7 @@ def _create_unet_configuration(
 def _create_algorithm_configuration(
     axes: str,
     algorithm: Literal["n2v", "care", "n2n", "pn2v"],
-    loss: Literal["n2v", "mae", "mse", "pn2v"],
+    loss: Literal["n2v", "n2v_poisson", "mae", "mse", "pn2v"],
     independent_channels: bool,
     n_channels_in: int,
     n_channels_out: int,
@@ -1233,6 +1233,7 @@ def create_n2v_configuration(
     masked_pixel_percentage: float = 0.2,
     struct_n2v_axis: Literal["horizontal", "vertical", "none"] = "none",
     struct_n2v_span: int = 5,
+    loss: Literal["n2v", "n2v_poisson"] = "n2v",
     trainer_params: dict | None = None,
     logger: Literal["wandb", "tensorboard", "none"] = "none",
     model_params: dict | None = None,
@@ -1250,136 +1251,139 @@ def create_n2v_configuration(
     num_patches_per_sample: int | None = None,
 ) -> Configuration:
     """
-     Create a configuration for training Noise2Void.
+    Create a configuration for training Noise2Void.
 
-     N2V uses a UNet model to denoise images in a self-supervised manner. To use its
-     variants structN2V and N2V2, set the `struct_n2v_axis` and `struct_n2v_span`
-     (structN2V) parameters, or set `use_n2v2` to True (N2V2).
+    N2V uses a UNet model to denoise images in a self-supervised manner. To use its
+    variants structN2V and N2V2, set the `struct_n2v_axis` and `struct_n2v_span`
+    (structN2V) parameters, or set `use_n2v2` to True (N2V2).
 
-     N2V2 modifies the UNet architecture by adding blur pool layers and removes the skip
-     connections, thus removing checkboard artefacts. StructN2V is used when vertical
-     or horizontal correlations are present in the noise; it applies an additional mask
-     to the manipulated pixel neighbors.
+    N2V2 modifies the UNet architecture by adding blur pool layers and removes the skip
+    connections, thus removing checkboard artefacts. StructN2V is used when vertical
+    or horizontal correlations are present in the noise; it applies an additional mask
+    to the manipulated pixel neighbors.
 
-     If "Z" is present in `axes`, then `patch_size` must be a list of length 3,
-     otherwise 2.
+    If "Z" is present in `axes`, then `patch_size` must be a list of length 3,
+    otherwise 2.
 
-     If "C" is present in `axes`, then you need to set `n_channels` to the number
-     of channels.
+    If "C" is present in `axes`, then you need to set `n_channels` to the number
+    of channels.
 
-     By default, all channels are trained independently. To train all channels
-     together, set `independent_channels` to False.
+    By default, all channels are trained independently. To train all channels
+    together, set `independent_channels` to False.
 
-     By default, the transformations applied are a random flip along X or Y, and
-     a random 90 degrees rotation in the XY plane. Normalization is always
-     applied, as well as the N2V manipulation.
+    By default, the transformations applied are a random flip along X or Y, and
+    a random 90 degrees rotation in the XY plane. Normalization is always
+    applied, as well as the N2V manipulation.
 
-     By setting `augmentations` to `None`, the default transformations (flip in X and Y,
-     rotations by 90 degrees in the XY plane) are applied. Rather than the default
-     transforms, a list of transforms can be passed to the `augmentations` parameter. To
-     disable the transforms, simply pass an empty list.
+    By setting `augmentations` to `None`, the default transformations (flip in X and Y,
+    rotations by 90 degrees in the XY plane) are applied. Rather than the default
+    transforms, a list of transforms can be passed to the `augmentations` parameter. To
+    disable the transforms, simply pass an empty list.
 
-     The `roi_size` parameter specifies the size of the area around each pixel that will
-     be manipulated by N2V. The `masked_pixel_percentage` parameter specifies how many
-     pixels per patch will be manipulated.
+    The `roi_size` parameter specifies the size of the area around each pixel that will
+    be manipulated by N2V. The `masked_pixel_percentage` parameter specifies how many
+    pixels per patch will be manipulated.
 
-     The parameters of the UNet can be specified in the `model_params` (passed as a
-     parameter-value dictionary). Note that `use_n2v2` and 'n_channels' override the
-     corresponding parameters passed in `model_params`.
+    The parameters of the UNet can be specified in the `model_params` (passed as a
+    parameter-value dictionary). Note that `use_n2v2` and 'n_channels' override the
+    corresponding parameters passed in `model_params`.
 
-     If you pass "horizontal" or "vertical" to `struct_n2v_axis`, then structN2V mask
-     will be applied to each manipulated pixel.
+    If you pass "horizontal" or "vertical" to `struct_n2v_axis`, then structN2V mask
+    will be applied to each manipulated pixel.
 
     Parameters
     ----------
-     experiment_name : str
-         Name of the experiment.
-     data_type : Literal["array", "tiff", "czi", "custom"]
-         Type of the data.
-     axes : str
-         Axes of the data (e.g. "YX" for 2D, "X" for 1D, "ZYX" for 3D).
-     patch_size : List[int]
-         Size of the patches along the spatial dimensions (e.g. [64, 64]).
-     batch_size : int
-         Batch size.
-     num_epochs : int, default=100
-         Number of epochs to train for. If provided, this will be added to
-         trainer_params.
-     num_steps : int, optional
-         Number of batches in 1 epoch. If provided, this will be added to
-         trainer_params.
-         Translates to `limit_train_batches` in PyTorch Lightning Trainer. See relevant
-         documentation for more details.
-     augmentations : list of transforms, default=None
-         List of transforms to apply, either both or one of XYFlipModel and
-         XYRandomRotate90Model. By default, it applies both XYFlip (on X and Y)
-         and XYRandomRotate90 (in XY) to the images.
-     independent_channels : bool, optional
-         Whether to train all channels together, by default True.
-     use_n2v2 : bool, optional
-         Whether to use N2V2, by default False.
-     n_channels : int or None, default=None
-         Number of channels (in and out).
-     roi_size : int, optional
-         N2V pixel manipulation area, by default 11.
-     masked_pixel_percentage : float, optional
-         Percentage of pixels masked in each patch, by default 0.2.
-     struct_n2v_axis : Literal["horizontal", "vertical", "none"], optional
-         Axis along which to apply structN2V mask, by default "none".
-     struct_n2v_span : int, optional
-         Span of the structN2V mask, by default 5.
-     trainer_params : dict, optional
-         Parameters for the trainer, see the relevant documentation.
-     logger : Literal["wandb", "tensorboard", "none"], optional
-         Logger to use, by default "none".
-     model_params : dict, default=None
-         UNetModel parameters.
-     optimizer : Literal["Adam", "Adamax", "SGD"], default="Adam"
-         Optimizer to use.
-     optimizer_params : dict, default=None
-         Parameters for the optimizer, see PyTorch documentation for more details.
-     lr_scheduler : Literal["ReduceLROnPlateau", "StepLR"], default="ReduceLROnPlateau"
-         Learning rate scheduler to use.
-     lr_scheduler_params : dict, default=None
-         Parameters for the learning rate scheduler, see PyTorch documentation for more
-         details.
-     train_dataloader_params : dict, optional
-         Parameters for the training dataloader, see the PyTorch docs for `DataLoader`.
-         If left as `None`, the dict `{"shuffle": True}` will be used, this is set in
-         the `GeneralDataConfig`.
-     val_dataloader_params : dict, optional
-         Parameters for the validation dataloader, see PyTorch the docs for
-         `DataLoader`.
-         If left as `None`, the empty dict `{}` will be used, this is set in the
-         `GeneralDataConfig`.
-     checkpoint_params : dict, default=None
-         Parameters for the checkpoint callback, see PyTorch Lightning documentation
-         (`ModelCheckpoint`) for the list of available parameters.
-     n_data_channels : int, default=1
-         Number of data channels to mask, starting from index 0. Only used if
-         `data_channel_indices` is None. **Note**: For multi-channel data
-         (`n_channels` > 1),
-         this automatically defaults to `n_channels` to train all channels. For example,
-         if `n_channels=2`, both channels 0 and 1 will be masked by default.
-         To train only a subset of channels,
-         use `data_channel_indices` instead.
-     data_channel_indices : list of int or None, default=None
-         Specific channel indices to mask (e.g., [0, 3, 5]). If specified, takes
-         precedence over `n_data_channels`. Useful when you have auxiliary channels
-         (like positional encodings) that should not be masked. The indices will be
-         automatically sorted. If None, the first `n_data_channels` channels are masked.
-     patching_strategy : Literal["sequential", "random"], default="sequential"
-         Patching strategy to use during data preparation. 'sequential' extracts patches
-         sequentially with potential overlap, while 'random' extracts patches randomly
-         from the data. Random patching can improve training diversity.
-     patching_seed : int or None, default=None
-         Random seed for random patching. Only used when patching_strategy is 'random'.
-         If None, patches will be extracted randomly without a fixed seed.
-     num_patches_per_sample : int or None, default=None
-         Number of patches to extract per sample when using random patching. If None,
-         automatically calculated as ceil(total_pixels / patch_pixels). Setting higher
-         extracts more patches with overlap (better diversity), lower extracts fewer
-         (faster training). Only used when patching_strategy is 'random'.
+    experiment_name : str
+        Name of the experiment.
+    data_type : Literal["array", "tiff", "czi", "custom"]
+        Type of the data.
+    axes : str
+        Axes of the data (e.g. "YX" for 2D, "X" for 1D, "ZYX" for 3D).
+    patch_size : List[int]
+        Size of the patches along the spatial dimensions (e.g. [64, 64]).
+    batch_size : int
+        Batch size.
+    num_epochs : int, default=100
+        Number of epochs to train for. If provided, this will be added to
+        trainer_params.
+    num_steps : int, optional
+        Number of batches in 1 epoch. If provided, this will be added to
+        trainer_params.
+        Translates to `limit_train_batches` in PyTorch Lightning Trainer. See relevant
+        documentation for more details.
+    augmentations : list of transforms, default=None
+        List of transforms to apply, either both or one of XYFlipModel and
+        XYRandomRotate90Model. By default, it applies both XYFlip (on X and Y)
+        and XYRandomRotate90 (in XY) to the images.
+    independent_channels : bool, optional
+        Whether to train all channels together, by default True.
+    use_n2v2 : bool, optional
+        Whether to use N2V2, by default False.
+    n_channels : int or None, default=None
+        Number of channels (in and out).
+    roi_size : int, optional
+        N2V pixel manipulation area, by default 11.
+    masked_pixel_percentage : float, optional
+        Percentage of pixels masked in each patch, by default 0.2.
+    struct_n2v_axis : Literal["horizontal", "vertical", "none"], optional
+        Axis along which to apply structN2V mask, by default "none".
+    struct_n2v_span : int, optional
+        Span of the structN2V mask, by default 5.
+    loss : Literal["n2v", "n2v_poisson"], default="n2v"
+        Loss function to use. "n2v" for MSE-based loss, "n2v_poisson" for Poisson
+        negative log-likelihood loss.
+    trainer_params : dict, optional
+        Parameters for the trainer, see the relevant documentation.
+    logger : Literal["wandb", "tensorboard", "none"], optional
+        Logger to use, by default "none".
+    model_params : dict, default=None
+        UNetModel parameters.
+    optimizer : Literal["Adam", "Adamax", "SGD"], default="Adam"
+        Optimizer to use.
+    optimizer_params : dict, default=None
+        Parameters for the optimizer, see PyTorch documentation for more details.
+    lr_scheduler : Literal["ReduceLROnPlateau", "StepLR"], default="ReduceLROnPlateau"
+        Learning rate scheduler to use.
+    lr_scheduler_params : dict, default=None
+        Parameters for the learning rate scheduler, see PyTorch documentation for more
+        details.
+    train_dataloader_params : dict, optional
+        Parameters for the training dataloader, see the PyTorch docs for `DataLoader`.
+        If left as `None`, the dict `{"shuffle": True}` will be used, this is set in
+        the `GeneralDataConfig`.
+    val_dataloader_params : dict, optional
+        Parameters for the validation dataloader, see PyTorch the docs for
+        `DataLoader`.
+        If left as `None`, the empty dict `{}` will be used, this is set in the
+        `GeneralDataConfig`.
+    checkpoint_params : dict, default=None
+        Parameters for the checkpoint callback, see PyTorch Lightning documentation
+        (`ModelCheckpoint`) for the list of available parameters.
+    n_data_channels : int, default=1
+        Number of data channels to mask, starting from index 0. Only used if
+        `data_channel_indices` is None. **Note**: For multi-channel data
+        (`n_channels` > 1),
+        this automatically defaults to `n_channels` to train all channels. For example,
+        if `n_channels=2`, both channels 0 and 1 will be masked by default.
+        To train only a subset of channels,
+        use `data_channel_indices` instead.
+    data_channel_indices : list of int or None, default=None
+        Specific channel indices to mask (e.g., [0, 3, 5]). If specified, takes
+        precedence over `n_data_channels`. Useful when you have auxiliary channels
+        (like positional encodings) that should not be masked. The indices will be
+        automatically sorted. If None, the first `n_data_channels` channels are masked.
+    patching_strategy : Literal["sequential", "random"], default="sequential"
+        Patching strategy to use during data preparation. 'sequential' extracts patches
+        sequentially with potential overlap, while 'random' extracts patches randomly
+        from the data. Random patching can improve training diversity.
+    patching_seed : int or None, default=None
+        Random seed for random patching. Only used when patching_strategy is 'random'.
+        If None, patches will be extracted randomly without a fixed seed.
+    num_patches_per_sample : int or None, default=None
+        Number of patches to extract per sample when using random patching. If None,
+        automatically calculated as ceil(total_pixels / patch_pixels). Setting higher
+        extracts more patches with overlap (better diversity), lower extracts fewer
+        (faster training). Only used when patching_strategy is 'random'.
 
     Returns
     -------
@@ -1388,99 +1392,99 @@ def create_n2v_configuration(
 
     Examples
     --------
-     Minimum example:
-     >>> config = create_n2v_configuration(
-     ...     experiment_name="n2v_experiment",
-     ...     data_type="array",
-     ...     axes="YX",
-     ...     patch_size=[64, 64],
-     ...     batch_size=32,
-     ...     num_epochs=100
-     ... )
+    Minimum example:
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="n2v_experiment",
+    ...     data_type="array",
+    ...     axes="YX",
+    ...     patch_size=[64, 64],
+    ...     batch_size=32,
+    ...     num_epochs=100
+    ... )
 
-     You can also limit the number of batches per epoch:
-     >>> config = create_n2v_configuration(
-     ...     experiment_name="n2v_experiment",
-     ...     data_type="array",
-     ...     axes="YX",
-     ...     patch_size=[64, 64],
-     ...     batch_size=32,
-     ...     num_steps=100  # limit to 100 batches per epoch
-     ... )
+    You can also limit the number of batches per epoch:
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="n2v_experiment",
+    ...     data_type="array",
+    ...     axes="YX",
+    ...     patch_size=[64, 64],
+    ...     batch_size=32,
+    ...     num_steps=100  # limit to 100 batches per epoch
+    ... )
 
     1D example for Raman spectroscopy:
-     >>> config = create_n2v_configuration(
-     ...     experiment_name="n2v_1d_raman",
-     ...     data_type="array",
-     ...     axes="X",
-     ...     patch_size=[128],
-     ...     batch_size=64,
-     ...     num_epochs=100,
-     ...     roi_size=3  # Smaller ROI for 1D data
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="n2v_1d_raman",
+    ...     data_type="array",
+    ...     axes="X",
+    ...     patch_size=[128],
+    ...     batch_size=64,
+    ...     num_epochs=100,
+    ...     roi_size=3  # Smaller ROI for 1D data
+    ... )
+
+    To disable transforms, simply set `augmentations` to an empty list:
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="n2v_experiment",
+    ...     data_type="array",
+    ...     axes="YX",
+    ...     patch_size=[64, 64],
+    ...     batch_size=32,
+    ...     num_epochs=100,
+    ...     augmentations=[]
+    ... )
+
+    A list of transforms can be passed to the `augmentations` parameter:
+    >>> from careamics.config.transformations import XYFlipConfig
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="n2v_experiment",
+    ...     data_type="array",
+    ...     axes="YX",
+    ...     patch_size=[64, 64],
+    ...     batch_size=32,
+    ...     num_epochs=100,
+    ...     augmentations=[
+    ...         # No rotation and only Y flipping
+    ...         XYFlipConfig(flip_x = False, flip_y = True)
+    ...     ]
+    ... )
+
+    To use N2V2, simply pass the `use_n2v2` parameter:
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="n2v2_experiment",
+    ...     data_type="tiff",
+    ...     axes="YX",
+    ...     patch_size=[64, 64],
+    ...     batch_size=32,
+    ...     num_epochs=100,
+    ...     use_n2v2=True
      ... )
 
-     To disable transforms, simply set `augmentations` to an empty list:
-     >>> config = create_n2v_configuration(
-     ...     experiment_name="n2v_experiment",
-     ...     data_type="array",
-     ...     axes="YX",
-     ...     patch_size=[64, 64],
-     ...     batch_size=32,
-     ...     num_epochs=100,
-     ...     augmentations=[]
-     ... )
+    For structN2V, there are two parameters to set, `struct_n2v_axis` and
+    `struct_n2v_span`:
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="structn2v_experiment",
+    ...     data_type="tiff",
+    ...     axes="YX",
+    ...     patch_size=[64, 64],
+    ...     batch_size=32,
+    ...     num_epochs=100,
+    ...     struct_n2v_axis="horizontal",
+    ...     struct_n2v_span=7
+    ... )
 
-     A list of transforms can be passed to the `augmentations` parameter:
-     >>> from careamics.config.transformations import XYFlipConfig
-     >>> config = create_n2v_configuration(
-     ...     experiment_name="n2v_experiment",
-     ...     data_type="array",
-     ...     axes="YX",
-     ...     patch_size=[64, 64],
-     ...     batch_size=32,
-     ...     num_epochs=100,
-     ...     augmentations=[
-     ...         # No rotation and only Y flipping
-     ...         XYFlipConfig(flip_x = False, flip_y = True)
-     ...     ]
-     ... )
-
-     To use N2V2, simply pass the `use_n2v2` parameter:
-     >>> config = create_n2v_configuration(
-     ...     experiment_name="n2v2_experiment",
-     ...     data_type="tiff",
-     ...     axes="YX",
-     ...     patch_size=[64, 64],
-     ...     batch_size=32,
-     ...     num_epochs=100,
-     ...     use_n2v2=True
-     ... )
-
-     For structN2V, there are two parameters to set, `struct_n2v_axis` and
-     `struct_n2v_span`:
-     >>> config = create_n2v_configuration(
-     ...     experiment_name="structn2v_experiment",
-     ...     data_type="tiff",
-     ...     axes="YX",
-     ...     patch_size=[64, 64],
-     ...     batch_size=32,
-     ...     num_epochs=100,
-     ...     struct_n2v_axis="horizontal",
-     ...     struct_n2v_span=7
-     ... )
-
-     If you are training multiple channels they will be trained
-     independently by default,
-     you simply need to specify the number of channels:
-     >>> config = create_n2v_configuration(
-     ...     experiment_name="n2v_experiment",
-     ...     data_type="array",
-     ...     axes="YXC",
-     ...     patch_size=[64, 64],
-     ...     batch_size=32,
-     ...     num_epochs=100,
-     ...     n_channels=3
-     ... )
+    If you are training multiple channels they will be trained
+    independently by default,
+    you simply need to specify the number of channels:
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="n2v_experiment",
+    ...     data_type="array",
+    ...     axes="YXC",
+    ...     patch_size=[64, 64],
+    ...     batch_size=32,
+    ...     num_epochs=100,
+    ...     n_channels=3
+    ... )
 
     If instead you want to train multiple channels together, you need to turn off the
     `independent_channels` parameter:
@@ -1510,73 +1514,73 @@ def create_n2v_configuration(
     ...     model_params={"num_classes": 1}  # Output 1 channel
     ... )
 
-     Or with non-sequential data channels:
-     >>> config = create_n2v_configuration(
-     ...     experiment_name="multi_channel_microscopy",
-     ...     data_type="array",
-     ...     axes="YXC",
-     ...     patch_size=[256, 256],
-     ...     batch_size=32,
-     ...     num_epochs=100,
-     ...     independent_channels=False,
-     ...     n_channels=6,  # 3 fluorescence + 3 auxiliary
-     ...     data_channel_indices=[0, 2, 4],  # Mask fluorescence channels only
-     ...     model_params={"num_classes": 3}  # Output 3 channels
-     ... )
+    Or with non-sequential data channels:
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="multi_channel_microscopy",
+    ...     data_type="array",
+    ...     axes="YXC",
+    ...     patch_size=[256, 256],
+    ...     batch_size=32,
+    ...     num_epochs=100,
+    ...     independent_channels=False,
+    ...     n_channels=6,  # 3 fluorescence + 3 auxiliary
+    ...     data_channel_indices=[0, 2, 4],  # Mask fluorescence channels only
+    ...     model_params={"num_classes": 3}  # Output 3 channels
+    ... )
 
-     To use random patching instead of sequential patching (which can improve training
-     diversity), simply set the `patching_strategy` parameter:
-     >>> config = create_n2v_configuration(
-     ...     experiment_name="n2v_random_patching",
-     ...     data_type="array",
-     ...     axes="YX",
-     ...     patch_size=[64, 64],
-     ...     batch_size=32,
-     ...     num_epochs=100,
-     ...     patching_strategy="random",
-     ...     patching_seed=42  # Optional: for reproducibility
-     ... )
+    To use random patching instead of sequential patching (which can improve training
+    diversity), simply set the `patching_strategy` parameter:
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="n2v_random_patching",
+    ...     data_type="array",
+    ...     axes="YX",
+    ...     patch_size=[64, 64],
+    ...     batch_size=32,
+    ...     num_epochs=100,
+    ...     patching_strategy="random",
+    ...     patching_seed=42  # Optional: for reproducibility
+    ... )
 
-     For multi-channel denoising with auxiliary channels (Formulation 2C),
-     use asymmetric masking and channel dropout to prevent
-     noise contamination from auxiliary channels:
-     >>> config = create_n2v_configuration(
-     ...     experiment_name="n2v_formulation_2c",
-     ...     data_type="array",
-     ...     axes="YXC",
-     ...     patch_size=[128, 128],
-     ...     batch_size=32,
-     ...     num_epochs=100,
-     ...     n_channels=4,
-     ...     data_channel_indices=[0],  # Only mask channel 0
-     ...     independent_channels=False,
-     ...     auxiliary_mask_percentage=0.05,  # Light masking on auxiliary channels
-     ...     auxiliary_dropout_probability=0.3,  # 30% dropout per channel
-     ...     model_params={"num_classes": 1}  # Output single channel
-     ... )
+    For multi-channel denoising with auxiliary channels (Formulation 2C),
+    use asymmetric masking and channel dropout to prevent
+    noise contamination from auxiliary channels:
+    >>> config = create_n2v_configuration(
+    ...     experiment_name="n2v_formulation_2c",
+    ...     data_type="array",
+    ...     axes="YXC",
+    ...     patch_size=[128, 128],
+    ...     batch_size=32,
+    ...     num_epochs=100,
+    ...     n_channels=4,
+    ...     data_channel_indices=[0],  # Only mask channel 0
+    ...     independent_channels=False,
+    ...     auxiliary_mask_percentage=0.05,  # Light masking on auxiliary channels
+    ...     auxiliary_dropout_probability=0.3,  # 30% dropout per channel
+    ...     model_params={"num_classes": 1}  # Output single channel
+    ... )
 
-     If you would like to train on CZI files, use `"czi"` as `data_type` and `"SCYX"` as
-     `axes` for 2-D or `"SCZYX"` for 3-D denoising. Note that `"SCYX"` can also be used
-     for 3-D data but spatial context along the Z dimension will then not be taken into
-     account.
-     >>> config_2d = create_n2v_configuration(
-     ...     experiment_name="n2v_experiment",
-     ...     data_type="czi",
-     ...     axes="SCYX",
-     ...     patch_size=[64, 64],
-     ...     batch_size=32,
-     ...     num_epochs=100,
-     ...     n_channels=1,
-     ... )
-     >>> config_3d = create_n2v_configuration(
-     ...     experiment_name="n2v_experiment",
-     ...     data_type="czi",
-     ...     axes="SCZYX",
-     ...     patch_size=[16, 64, 64],
-     ...     batch_size=16,
-     ...     num_epochs=100,
-     ...     n_channels=1,
-     ... )
+    If you would like to train on CZI files, use `"czi"` as `data_type` and `"SCYX"` as
+    `axes` for 2-D or `"SCZYX"` for 3-D denoising. Note that `"SCYX"` can also be used
+    for 3-D data but spatial context along the Z dimension will then not be taken into
+    account.
+    >>> config_2d = create_n2v_configuration(
+    ...     experiment_name="n2v_experiment",
+    ...     data_type="czi",
+    ...     axes="SCYX",
+    ...     patch_size=[64, 64],
+    ...     batch_size=32,
+    ...     num_epochs=100,
+    ...     n_channels=1,
+    ... )
+    >>> config_3d = create_n2v_configuration(
+    ...     experiment_name="n2v_experiment",
+    ...     data_type="czi",
+    ...     axes="SCZYX",
+    ...     patch_size=[16, 64, 64],
+    ...     batch_size=16,
+    ...     num_epochs=100,
+    ...     n_channels=1,
+    ... )
     """
     # Determine if 1D data
     spatial_axes = [ax for ax in axes if ax in "XYZ"]
@@ -1660,7 +1664,7 @@ def create_n2v_configuration(
     algorithm_params = _create_algorithm_configuration(
         axes=axes,
         algorithm="n2v",
-        loss="n2v",
+        loss=loss,
         independent_channels=independent_channels,
         n_channels_in=n_channels,
         n_channels_out=n_channels,

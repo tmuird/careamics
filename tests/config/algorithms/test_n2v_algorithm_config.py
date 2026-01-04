@@ -4,15 +4,16 @@ from careamics.config.algorithms import N2VAlgorithm
 from careamics.config.support import SupportedPixelManipulation
 
 
-def test_n_channels_n2v():
-    """Check that mismatching in/out channels are allowed (for pixel embedding)."""
+@pytest.mark.parametrize("loss", ["n2v", "n2v_poisson"])
+def test_n_channels_n2v(loss):
+    """Check that an error is raised if n2v has different number of channels in
+    input and output."""
     model = {
         "architecture": "UNet",
         "in_channels": 1,
         "num_classes": 2,
         "n2v2": False,
     }
-    loss = "n2v"
 
     # Mismatching channels now allowed for pixel embedding support
     config = N2VAlgorithm(algorithm="n2v", loss=loss, model=model)
