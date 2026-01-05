@@ -124,6 +124,12 @@ class FCNModule(L.LightningModule):
         else:
             self.loss_func = loss_func
 
+        # Check if we're using N2V Poisson loss (needs normalization stats)
+        self.use_poisson_loss = (
+            isinstance(self.algorithm_config, N2VAlgorithm)
+            and self.algorithm_config.loss == SupportedLoss.N2V_POISSON
+        )
+
         # save optimizer and lr_scheduler names and parameters
         self.optimizer_name = self.algorithm_config.optimizer.name
         self.optimizer_params = self.algorithm_config.optimizer.parameters
@@ -195,6 +201,39 @@ class FCNModule(L.LightningModule):
         )
         return denorm(patch=out.cpu().numpy())
 
+    def _get_data_channel_stats(self) -> tuple[list[float], list[float]]:
+        """Get normalization statistics for data channels only.
+
+        For N2V with auxiliary channels (e.g., positional encoding), this extracts
+        only the statistics for channels that contain actual data (not auxiliary info).
+        This is critical for Poisson loss, which must denormalize to photon count scale.
+
+        Returns
+        -------
+        tuple[list[float], list[float]]
+            Mean and std for data channels only.
+        """
+        # Get all channel statistics from dataset
+        all_means = self._trainer.datamodule.train_dataset.image_stats.means
+        all_stds = self._trainer.datamodule.train_dataset.image_stats.stds
+
+        # Extract data channel indices from N2V config
+        if isinstance(self.algorithm_config, N2VAlgorithm | PN2VAlgorithm):
+            data_channel_indices = self.algorithm_config.n2v_config.data_channel_indices
+
+            # If data_channel_indices is None or empty, use all channels
+            if data_channel_indices is None or len(data_channel_indices) == 0:
+                return all_means, all_stds
+
+            # Extract only data channel stats
+            data_means = [all_means[i] for i in data_channel_indices]
+            data_stds = [all_stds[i] for i in data_channel_indices]
+
+            return data_means, data_stds
+        else:
+            # Not N2V - return all stats
+            return all_means, all_stds
+
     def training_step(self, batch: torch.Tensor, batch_idx: Any) -> Any:
         """Training step.
 
@@ -224,7 +263,13 @@ class FCNModule(L.LightningModule):
             out = self._train_denormalize(out)
             aux = [self._train_denormalize(aux[0]), aux[1]]
             # TODO hacky and ugly
-        loss = self.loss_func(out, *aux, *targets)
+
+        # N2V Poisson loss needs data channel statistics for denormalization
+        if self.use_poisson_loss:
+            data_means, data_stds = self._get_data_channel_stats()
+            loss = self.loss_func(out, *aux, *targets, data_means, data_stds)
+        else:
+            loss = self.loss_func(out, *aux, *targets)
         self.log(
             "train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True
         )
@@ -257,7 +302,13 @@ class FCNModule(L.LightningModule):
             out = torch.tensor(self._train_denormalize(out))
             aux = [self._train_denormalize(aux[0]), aux[1]]
             # TODO hacky and ugly
-        val_loss = self.loss_func(out, *aux, *targets)
+
+        # N2V Poisson loss needs data channel statistics for denormalization
+        if self.use_poisson_loss:
+            data_means, data_stds = self._get_data_channel_stats()
+            val_loss = self.loss_func(out, *aux, *targets, data_means, data_stds)
+        else:
+            val_loss = self.loss_func(out, *aux, *targets)
 
         # log validation loss
         self.log(

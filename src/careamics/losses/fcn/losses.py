@@ -116,7 +116,11 @@ def n2v_poisson_loss(
     masks : torch.Tensor
         Binary mask indicating which pixels were masked. Shape: (B, C_in, ...).
     *args : Any
-        Additional arguments.
+        Optional arguments:
+        - args[0]: image_means (list[float]) - Mean values for DATA channels only.
+                   For N2V with auxiliary channels (e.g., positional encoding),
+                   only pass stats for channels containing photon count data.
+        - args[1]: image_stds (list[float]) - Std values for DATA channels only.
 
     Returns
     -------
@@ -132,6 +136,11 @@ def n2v_poisson_loss(
     - Only ~2% of pixels are masked in N2V
     - We want the mean over MASKED pixels only, not all pixels
     - sum(loss * mask) / sum(mask) = weighted mean over masked pixels
+
+    IMPORTANT: When using auxiliary channels (positional encoding, etc.):
+    - Only pass normalization statistics for DATA channels (photon counts)
+    - Do NOT include statistics for auxiliary channels
+    - Auxiliary channels are not photon data and should not be denormalized
     """
     # Handle channel dimension mismatch
     if manipulated_batch.shape[1] < original_batch.shape[1]:
