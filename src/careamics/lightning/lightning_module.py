@@ -124,11 +124,14 @@ class FCNModule(L.LightningModule):
         else:
             self.loss_func = loss_func
 
-        # Check if we're using N2V Poisson loss (needs normalization stats)
-        self.use_poisson_loss = (
-            isinstance(self.algorithm_config, N2VAlgorithm)
-            and self.algorithm_config.loss == SupportedLoss.N2V_POISSON
-        )
+        # Check if loss requires denormalisation
+        self.loss_needs_denorm = isinstance(
+            self.algorithm_config, N2VAlgorithm
+        ) and self.algorithm_config.loss in [
+            SupportedLoss.N2V_POISSON,
+            SupportedLoss.N2V_ANSCOMBE,
+            SupportedLoss.N2V_SIGNAL_ONLY,
+        ]
 
         # save optimizer and lr_scheduler names and parameters
         self.optimizer_name = self.algorithm_config.optimizer.name
@@ -262,14 +265,24 @@ class FCNModule(L.LightningModule):
         if isinstance(self.algorithm_config, PN2VAlgorithm):
             out = self._train_denormalize(out)
             aux = [self._train_denormalize(aux[0]), aux[1]]
-            # TODO hacky and ugly
 
-        # N2V Poisson loss needs data channel statistics for denormalization
-        if self.use_poisson_loss:
+        # Losses requiring denormalization need data channel statistics
+        if self.loss_needs_denorm:
             data_means, data_stds = self._get_data_channel_stats()
-            loss = self.loss_func(out, *aux, *targets, data_means, data_stds)
+
+            # For N2V variants, pass data_channel_indices as well
+            if isinstance(self.algorithm_config, N2VAlgorithm | PN2VAlgorithm):
+                data_channel_indices = (
+                    self.algorithm_config.n2v_config.data_channel_indices
+                )
+                loss = self.loss_func(
+                    out, *aux, *targets, data_means, data_stds, data_channel_indices
+                )
+            else:
+                loss = self.loss_func(out, *targets, data_means, data_stds)
         else:
             loss = self.loss_func(out, *aux, *targets)
+
         self.log(
             "train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True
         )
@@ -301,12 +314,21 @@ class FCNModule(L.LightningModule):
         if isinstance(self.algorithm_config, PN2VAlgorithm):
             out = torch.tensor(self._train_denormalize(out))
             aux = [self._train_denormalize(aux[0]), aux[1]]
-            # TODO hacky and ugly
 
-        # N2V Poisson loss needs data channel statistics for denormalization
-        if self.use_poisson_loss:
+        # Losses requiring denormalization need data channel statistics
+        if self.loss_needs_denorm:
             data_means, data_stds = self._get_data_channel_stats()
-            val_loss = self.loss_func(out, *aux, *targets, data_means, data_stds)
+
+            # For N2V variants, pass data_channel_indices as well
+            if isinstance(self.algorithm_config, N2VAlgorithm | PN2VAlgorithm):
+                data_channel_indices = (
+                    self.algorithm_config.n2v_config.data_channel_indices
+                )
+                val_loss = self.loss_func(
+                    out, *aux, *targets, data_means, data_stds, data_channel_indices
+                )
+            else:
+                val_loss = self.loss_func(out, *targets, data_means, data_stds)
         else:
             val_loss = self.loss_func(out, *aux, *targets)
 

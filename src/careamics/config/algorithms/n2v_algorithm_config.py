@@ -93,8 +93,9 @@ class N2VAlgorithm(UNetBasedAlgorithm):
     algorithm: Literal["n2v"] = "n2v"
     """N2V Algorithm name."""
 
-    loss: Literal["n2v", "n2v_poisson"] = "n2v"
-    """N2V loss function (n2v for MSE-based, n2v_poisson for Poisson NLL)."""
+    loss: Literal["n2v", "n2v_poisson", "n2v_anscombe", "n2v_signal_only"] = "n2v"
+    """N2V loss function (n2v for MSE, n2v_poisson for Poisson NLL, n2v_anscombe
+    for Anscombe-transformed MSE)."""
 
     n2v_config: N2VManipulateConfig = N2VManipulateConfig()
 

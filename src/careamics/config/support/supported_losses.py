@@ -21,6 +21,8 @@ class SupportedLoss(str, BaseEnum):
     MAE = "mae"
     N2V = "n2v"
     N2V_POISSON = "n2v_poisson"
+    N2V_ANSCOMBE = "n2v_anscombe"
+    N2V_SIGNAL_ONLY = "n2v_signal_only"
     PN2V = "pn2v"
     HDN = "hdn"
     MUSPLIT = "musplit"

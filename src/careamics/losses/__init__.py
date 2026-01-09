@@ -1,6 +1,7 @@
 """Losses module."""
 
 __all__ = [
+    "anscombe_mse_loss",
     "denoisplit_loss",
     "denoisplit_musplit_loss",
     "hdn_loss",
@@ -8,11 +9,21 @@ __all__ = [
     "mae_loss",
     "mse_loss",
     "musplit_loss",
+    "n2v_anscombe_loss",
     "n2v_loss",
+    "n2v_masked_signal_loss",
     "n2v_poisson_loss",
 ]
 
-from .fcn.losses import mae_loss, mse_loss, n2v_loss, n2v_poisson_loss
+from .fcn.losses import (
+    anscombe_mse_loss,
+    mae_loss,
+    mse_loss,
+    n2v_anscombe_loss,
+    n2v_loss,
+    n2v_masked_signal_loss,
+    n2v_poisson_loss,
+)
 from .loss_factory import loss_factory
 from .lvae.losses import (
     denoisplit_loss,

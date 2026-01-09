@@ -56,7 +56,9 @@ class UNetBasedAlgorithm(BaseModel):
     algorithm: Literal["n2v", "care", "n2n", "pn2v"]
     """Algorithm name, as defined in SupportedAlgorithm."""
 
-    loss: Literal["n2v", "n2v_poisson", "mae", "mse", "pn2v"]
+    loss: Literal[
+        "n2v", "n2v_poisson", "n2v_anscombe", "n2v_signal_only", "mae", "mse", "pn2v"
+    ]
     """Loss function to use, as defined in SupportedLoss."""
 
     model: UNetConfig

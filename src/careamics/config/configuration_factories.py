@@ -176,7 +176,9 @@ def _create_unet_configuration(
 def _create_algorithm_configuration(
     axes: str,
     algorithm: Literal["n2v", "care", "n2n", "pn2v"],
-    loss: Literal["n2v", "n2v_poisson", "mae", "mse", "pn2v"],
+    loss: Literal[
+        "n2v", "n2v_poisson", "n2v_anscombe", "n2v_signal_only", "mae", "mse", "pn2v"
+    ],
     independent_channels: bool,
     n_channels_in: int,
     n_channels_out: int,
@@ -196,7 +198,7 @@ def _create_algorithm_configuration(
         Axes of the data.
     algorithm : {"n2v", "care", "n2n", "pn2v"}
         Algorithm to use.
-    loss : {"n2v", "mae", "mse", "pn2v"}
+    loss : {"n2v", "n2v_poisson", "n2v_anscombe", "mae", "mse", "pn2v"}
         Loss function to use.
     independent_channels : bool
         Whether to train all channels independently.
@@ -1233,7 +1235,7 @@ def create_n2v_configuration(
     masked_pixel_percentage: float = 0.2,
     struct_n2v_axis: Literal["horizontal", "vertical", "none"] = "none",
     struct_n2v_span: int = 5,
-    loss: Literal["n2v", "n2v_poisson"] = "n2v",
+    loss: Literal["n2v", "n2v_poisson", "n2v_anscombe", "n2v_signal_only"] = "n2v",
     trainer_params: dict | None = None,
     logger: Literal["wandb", "tensorboard", "none"] = "none",
     model_params: dict | None = None,
@@ -1285,8 +1287,10 @@ def create_n2v_configuration(
     pixels per patch will be manipulated.
 
     The parameters of the UNet can be specified in the `model_params` (passed as a
-    parameter-value dictionary). Note that `use_n2v2` and 'n_channels' override the
-    corresponding parameters passed in `model_params`.
+    parameter-value dictionary). Note that `use_n2v2`, `n_channels`, and `num_classes`
+    are automatically set based on configuration and override any values passed in
+    `model_params`. Specifically, `num_classes` (model output channels) is automatically
+    determined from `data_channel_indices` or `n_data_channels`.
 
     If you pass "horizontal" or "vertical" to `struct_n2v_axis`, then structN2V mask
     will be applied to each manipulated pixel.
@@ -1329,7 +1333,7 @@ def create_n2v_configuration(
         Axis along which to apply structN2V mask, by default "none".
     struct_n2v_span : int, optional
         Span of the structN2V mask, by default 5.
-    loss : Literal["n2v", "n2v_poisson"], default="n2v"
+    loss : Literal["n2v", "n2v_poisson", "n2v_anscombe"], default="n2v"
         Loss function to use. "n2v" for MSE-based loss, "n2v_poisson" for Poisson
         negative log-likelihood loss.
     trainer_params : dict, optional
@@ -1510,8 +1514,7 @@ def create_n2v_configuration(
     ...     num_epochs=100,
     ...     independent_channels=False,
     ...     n_channels=7,  # 1 Raman + 6 positional encoding channels
-    ...     data_channel_indices=[0],  # Only mask the Raman channel
-    ...     model_params={"num_classes": 1}  # Output 1 channel
+    ...     data_channel_indices=[0],  # Raman only (auto num_classes=1)
     ... )
 
     Or with non-sequential data channels:
@@ -1524,8 +1527,7 @@ def create_n2v_configuration(
     ...     num_epochs=100,
     ...     independent_channels=False,
     ...     n_channels=6,  # 3 fluorescence + 3 auxiliary
-    ...     data_channel_indices=[0, 2, 4],  # Mask fluorescence channels only
-    ...     model_params={"num_classes": 3}  # Output 3 channels
+    ...     data_channel_indices=[0, 2, 4],  # Auto num_classes=3
     ... )
 
     To use random patching instead of sequential patching (which can improve training
@@ -1552,11 +1554,10 @@ def create_n2v_configuration(
     ...     batch_size=32,
     ...     num_epochs=100,
     ...     n_channels=4,
-    ...     data_channel_indices=[0],  # Only mask channel 0
+    ...     data_channel_indices=[0],  # Only mask channel 0 (auto sets num_classes=1)
     ...     independent_channels=False,
     ...     auxiliary_mask_percentage=0.05,  # Light masking on auxiliary channels
     ...     auxiliary_dropout_probability=0.3,  # 30% dropout per channel
-    ...     model_params={"num_classes": 1}  # Output single channel
     ... )
 
     If you would like to train on CZI files, use `"czi"` as `data_type` and `"SCYX"` as
@@ -1644,6 +1645,39 @@ def create_n2v_configuration(
         if n_data_channels == 1 and n_channels > 1:
             n_data_channels = n_channels
 
+    # Validate data_channel_indices against n_channels
+    if data_channel_indices is not None:
+        if any(idx >= n_channels for idx in data_channel_indices):
+            raise ValueError(
+                f"data_channel_indices contains indices {data_channel_indices} "
+                f"but only {n_channels} channels available (indices 0-{n_channels-1})."
+            )
+
+    # Determine number of output channels (channels to predict)
+    # This is the number of DATA channels, not auxiliary channels
+    if data_channel_indices is not None:
+        # Explicit channel indices specified - output one channel per index
+        n_channels_out = len(data_channel_indices)
+    else:
+        # Use n_data_channels (which may have been auto-adjusted above)
+        n_channels_out = n_data_channels
+
+    # Warn if user manually specified num_classes in model_params
+    # (it will be overridden by n_channels_out)
+    if model_params is not None and "num_classes" in model_params:
+        if model_params["num_classes"] != n_channels_out:
+            import warnings
+
+            warnings.warn(
+                f"Ignoring manual 'num_classes={model_params['num_classes']}' in "
+                f"model_params. Automatically setting num_classes={n_channels_out} "
+                f"based on data_channel_indices={data_channel_indices} or "
+                f"n_data_channels={n_data_channels}. To change output channels, "
+                f"adjust data_channel_indices or n_data_channels instead.",
+                UserWarning,
+                stacklevel=2,
+            )
+
     # create the N2VManipulate transform using the supplied parameters
     n2v_transform = N2VManipulateConfig(
         name=SupportedTransform.N2V_MANIPULATE.value,
@@ -1667,7 +1701,7 @@ def create_n2v_configuration(
         loss=loss,
         independent_channels=independent_channels,
         n_channels_in=n_channels,
-        n_channels_out=n_channels,
+        n_channels_out=n_channels_out,  # ← Now correctly set based on data channels
         use_n2v2=use_n2v2,
         model_params=model_params,
         optimizer=optimizer,
